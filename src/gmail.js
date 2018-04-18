@@ -73,6 +73,20 @@ var Gmail_ = function(localJQuery) {
         var i, j, data;
         var users = [];
 
+        // try to fetch from DOM elements first
+        var domEls = Array.from(document.querySelectorAll('.gb_Ub')).map(function (el, i) {
+            var name = el.querySelector('.gb_3b').innerText, 
+                email = el.querySelector('.gb_4b').innerText.split(' ')[0];
+            return { 
+                name: name, 
+                email: email,
+                index: i
+            };
+        });
+        if (domEls && domEls.length > 0) {
+            return domEls;
+        }
+
         var globals17 = api.tracker.globals[17];
         for (i in globals17) {
             // at least for the delegated inboxes, the index of the mla is not stable
@@ -97,9 +111,31 @@ var Gmail_ = function(localJQuery) {
 
 
     api.get.user_email = function() {
+        // attempt to use the logged in emails (using DOM locators) first
+        var loggedIn = api.get.loggedin_accounts();
+        if (loggedIn && loggedIn.length > 0) {
+            return loggedIn[0];
+        }
+
         return api.tracker.globals[10];
     };
 
+    api.get.user_id = function() {
+        if (window.gbar_ && window.gbar_.CONFIG) {
+            return window.gbar_.CONFIG[0][7][14];
+        }
+        
+        var globals17 = api.tracker.globals[17];
+        for (var i in globals17) {
+            // at least for the delegated inboxes, the index of the 'user info' is not stable
+            // it was observed to be somewhere between 8 and 9, but we should not depend on it
+            var data = globals17[i];
+    
+            if (data[0] === 'ui' && data[1] === api.get.user_email()) {
+                return data[13];
+            }
+        }
+    };
 
     api.get.manager_email = function() {
         if (api.helper.get.is_delegated_inbox()) {
@@ -312,6 +348,10 @@ var Gmail_ = function(localJQuery) {
         return email.indexOf("gmail.com", email.length - "gmail.com".length) === -1;
     };
 
+    api.check.is_in_popout = function() {
+        return api.tools.parse_url(window.location.href).view === 'btop';
+    };
+
 
     api.get.storage_info = function() {
         var div = $(".md.mj").find("div")[0];
@@ -469,6 +509,45 @@ var Gmail_ = function(localJQuery) {
         }
         else {
             hash = api.tools.parse_url(window.location.href).th;
+        }
+
+        return hash;
+    };
+
+    /**
+     * @returns {*} - Returns the message id (if one exists). Otherwise, returns null
+     *                Note: Differs from api.get.email_id() since api.get.email_id() returns the
+     *                current page name if no message id is found
+     */
+    api.get.email_id_strict = function() {
+        var hash = null;
+
+        // we want to use the logic above from get.email_id()
+        if(api.check.is_inside_email()) {
+        if(api.check.is_preview_pane()) {
+            var items = api.dom.email_contents();
+            var text = [];
+
+            for(var i=0; i<items.length; i++) {
+            var mail_id = items[i].className.split(' ')[2] || items[i].children[0].className.split(' ')[2];
+            var is_editable = items[i].getAttribute('contenteditable');
+            var is_visible = items[i].offsetWidth > 0 && items[i].offsetHeight > 0;
+            if(mail_id != 'undefined' && mail_id != undefined && is_visible) {
+                if(is_editable != 'true') {
+                text.push(mail_id);
+                }
+            }
+            }
+
+            hash = text[0].substring(1, text[0].length);
+        } else {
+            // try to retrieve the id from the hash
+            hash = api.get.email_id_from_hash();
+        }
+        }
+        else {
+        // try to retrieve the id from the hash
+        hash = api.tools.parse_url(window.location.href).th || api.get.email_id_from_hash();
         }
 
         return hash;
@@ -1067,10 +1146,11 @@ var Gmail_ = function(localJQuery) {
             } else if (window.opener) {
                 js_frame = window.opener.top.document.getElementById("js_frame");
             }
-            if (!js_frame){
-                throw "Cannot register the xhr watcher as mail.google.com is not fully loaded yet. Please wrap your code in `gmail.observe.on(\"load\")`";
-            }
-            var win = js_frame.contentDocument.defaultView;
+
+            // if (!js_frame){
+            //     throw "Cannot register the xhr watcher as mail.google.com is not fully loaded yet. Please wrap your code in `gmail.observe.on(\"load\")`";
+            // }
+            var win = js_frame ? js_frame.contentDocument.defaultView : window;
 
             if (!win.gjs_XMLHttpRequest_open) {
                 win.gjs_XMLHttpRequest_open = win.XMLHttpRequest.prototype.open;
@@ -3023,4 +3103,8 @@ if (typeof(window) !== "undefined" && !window.Gmail) {
 // make class accessible to require()-users.
 if (typeof(exports) !== "undefined") {
     exports.Gmail = GmailClass;
+}
+
+if (typeof module !== 'undefined' && module['exports']) {
+    module.exports = GmailClass;
 }
